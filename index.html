@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enigma Terminal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            color: #00FF41;
+            font-family: 'Courier New', Consolas, monospace;
+            height: 100vh;
+            overflow: hidden;
+            text-shadow: 0 0 5px #00FF41, 0 0 10px #00FF41;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0, 0, 0, 0.4) 100%);
+            pointer-events: none;
+            z-index: 1001;
+        }
+
+        #terminal {
+            padding: 30px;
+            height: 100vh;
+            overflow-y: auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .output-line {
+            margin-bottom: 15px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+
+        .prompt {
+            color: #00FF41;
+            text-shadow: 0 0 5px #00FF41;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+        }
+
+        #input {
+            background: transparent;
+            border: none;
+            color: #00FF41;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 16px;
+            outline: none;
+            flex: 1;
+            margin-left: 10px;
+            text-shadow: 0 0 5px #00FF41;
+            caret-color: #00FF41;
+        }
+
+        .error {
+            color: #FF0000;
+            text-shadow: 0 0 5px #FF0000;
+        }
+
+        .success {
+            color: #00FFFF;
+            text-shadow: 0 0 5px #00FFFF;
+        }
+
+        .morse {
+            font-size: 24px;
+            letter-spacing: 10px;
+        }
+
+        .blink {
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            height: 16px;
+            background-color: #00FF41;
+            animation: blink 0.8s infinite;
+            margin-left: 2px;
+            box-shadow: 0 0 5px #00FF41;
+        }
+
+        .status-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #000000;
+            border-bottom: 1px solid #00FF41;
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            z-index: 100;
+            font-size: 12px;
+        }
+
+        #terminal {
+            padding-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="status-bar" id="statusBar">
+        <span>INSTALAÇÃO V-7 "ABISMO"</span>
+        <span id="temp">TEMP: 864°C</span>
+        <span id="reactor">REATOR: OPERACIONAL</span>
+        <span id="seismic">SÍSMICO: ESTÁVEL</span>
+    </div>
+    <div id="terminal">
+        <div id="output"></div>
+        <div class="input-line">
+            <span class="prompt">&gt;</span>
+            <input type="text" id="input" autofocus>
+            <span class="cursor"></span>
+        </div>
+    </div>
+
+    <audio id="audio" preload="auto">
+        <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const audio = document.getElementById('audio');
+
+        let currentStep = 1;
+
+        const intro = `
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ARQUIVO RESTRITO - NÍVEL ÔMEGA                           ║
+║   Instalação Vulcânica V-7 "ABISMO"                        ║
+║   Profundidade: 4.231 metros abaixo da superfície          ║
+║   Temperatura externa: 864°C                               ║
+║   Status do reator térmico: OPERACIONAL                    ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+REGISTRO DO DR. HENRIQUE MORAES
+DATA: 03/08/2088
+
+Se alguém estiver lendo isso,
+não desça para o Setor Magma.
+
+Nós acreditávamos que o calor
+vinha do vulcão.
+
+Estávamos errados.
+
+O vulcão não é a fonte.
+
+Ele é a tampa.
+`;
+
+        const lore1 = `
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   [SINAL RECEBIDO]                                           ║
+║                                                              ║
+║   Canal: GEO-07                                              ║
+║   Origem: DESCONHECIDA                                       ║
+║                                                              ║
+║   Ruído filtrado...                                          ║
+║   Decodificação parcial:                                     ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+`;
+
+        const morseCode = '... --- .-.. .-';
+        const _x = 'QUxPUw==';
+
+        const log1 = `
+[LOG 2089-06-12 04:17]
+
+Os sensores sísmicos detectaram vibrações
+que não correspondem a atividade geológica.
+
+O padrão se repete exatamente a cada
+13 minutos e 37 segundos.
+
+A fonte parece vir de uma câmara
+localizada abaixo do magma.
+
+A mensagem não descrevia um indivíduo.
+
+Ela descrevia uma presença.
+
+Algo que existe sozinho há muito tempo.
+
+Muito antes da construção desta instalação.
+
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   SEGUNDO ENIGMA:                                            ║
+║   CIFRA: VIGENÈRE                                            ║
+║   CHAVE: Primeira palavra decodificada do primeiro enigma    ║
+║   MENSAGEM: "UCYSLOYTW"                                      ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+`;
+
+        const _y = 'RVRORVRTTk9D';
+
+        const log2 = `
+[LOG 2089-06-12 06:42]
+
+O sinal está se tornando mais forte.
+Os equipamentos de monitoramento
+estão começando a falhar.
+
+Ela nos envía um sinal constante. Um pulso que não
+cessa. Ouvimos algo no áudio... algo que só podemos
+entender quando escutamos atentamente.
+
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   TERCEIRO ENIGMA:                                           ║
+║   Ouça o áudio e diga: Qual é a palavra que representa       ║
+║   a sensação de eternidade no espaço?                        ║
+║   (Dica: Começa com "I" e tem 8 letras)                      ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+`;
+
+        const _z = 'T1RJTklGTkk=';
+
+        const finalLore = `
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ALERTA CRÍTICO                                            ║
+╠══════════════════════════════════════════════════════════════╣
+║   Fonte do sinal localizada.                                ║
+║   Profundidade estimada: INDETERMINADA                      ║
+║   Temperatura registrada: IMPOSSÍVEL                        ║
+║                                                              ║
+║   O sinal não vem do espaço.                                ║
+║                                                              ║
+║   Ele vem de baixo.                                         ║
+║                                                              ║
+║   Muito abaixo.                                             ║
+║                                                              ║
+║   Encerrando terminal...                                    ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+[CONEXÃO PERDIDA]
+`;
+
+        function addOutput(text, className = '') {
+            const line = document.createElement('div');
+            line.className = 'output-line ' + className;
+            line.innerHTML = text.replace(/\n/g, '<br>');
+            output.appendChild(line);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        function caesarDecrypt(text, shift) {
+            return text.replace(/[A-Z]/gi, c => 
+                String.fromCharCode(c.charCodeAt(0) - (c <= 'Z' ? 65 : 97) - shift + 26) % 26 + (c <= 'Z' ? 65 : 97)
+            );
+        }
+
+        function startGame() {
+            addOutput(intro);
+            addOutput('<br>');
+            addOutput(lore1);
+            addOutput('<br><span class="morse">' + morseCode + '</span><br><br>');
+            addOutput('Digite a tradução:');
+        }
+
+        function clearTerminal() {
+            output.innerHTML = '';
+        }
+
+        function handleInput(e) {
+            if (e.key === 'Enter') {
+                const value = input.value.trim().toUpperCase();
+                input.value = '';
+
+                addOutput('<span class="prompt">&gt; ' + value + '</span>');
+
+                if (currentStep === 1) {
+                    if (value === _d(_x)) {
+                        currentStep = 2;
+                        clearTerminal();
+                        addOutput(log1);
+                        addOutput('Digite a resposta:');
+                    } else {
+                        addOutput('Resposta incorreta. Tente novamente.', 'error');
+                    }
+                } else if (currentStep === 2) {
+                    if (value === _d(_y)) {
+                        currentStep = 3;
+                        updateStatus();
+                        clearTerminal();
+                        addOutput(log2);
+                        audio.play();
+                        addOutput('Digite a resposta:');
+                    } else {
+                        addOutput('Resposta incorreta. Tente novamente.', 'error');
+                    }
+                } else if (currentStep === 3) {
+                    if (value === _d(_z)) {
+                        currentStep = 4;
+                        clearTerminal();
+                        addOutput(finalLore);
+                        input.disabled = true;
+                        document.getElementById('temp').textContent = 'TEMP: ---°C';
+                        document.getElementById('seismic').textContent = 'SÍSMICO: ---';
+                        document.getElementById('reactor').textContent = 'REATOR: ---';
+                    } else {
+                        addOutput('Resposta incorreta. Tente novamente.', 'error');
+                    }
+                }
+            }
+        }
+
+        function updateStatus() {
+            const tempEl = document.getElementById('temp');
+            const seismicEl = document.getElementById('seismic');
+            const reactorEl = document.getElementById('reactor');
+
+            const temp = 860 + Math.floor(Math.random() * 10);
+            tempEl.textContent = `TEMP: ${temp}°C`;
+
+            if (currentStep >= 3) {
+                seismicEl.textContent = 'SÍSMICO: ANÔMALO';
+                seismicEl.style.color = '#FF0000';
+                seismicEl.style.textShadow = '0 0 5px #FF0000';
+                reactorEl.textContent = 'REATOR: INSTÁVEL';
+            }
+        }
+
+        function typeText(element, text, delay = 30) {
+            let i = 0;
+            element.innerHTML = '';
+            const timer = setInterval(() => {
+                if (i < text.length) {
+                    element.innerHTML += text.charAt(i);
+                    i++;
+                    window.scrollTo(0, document.body.scrollHeight);
+                } else {
+                    clearInterval(timer);
+                }
+            }, delay);
+        }
+
+        function _d(e) {
+            return atob(e).split('').reverse().join('');
+        }
+
+        function vigenereDecrypt(ciphertext, key) {
+            let plaintext = '';
+            key = key.toUpperCase();
+            ciphertext = ciphertext.toUpperCase();
+            let keyIndex = 0;
+            
+            for (let i = 0; i < ciphertext.length; i++) {
+                let charCode = ciphertext.charCodeAt(i);
+                if (charCode >= 65 && charCode <= 90) {
+                    let keyCode = key.charCodeAt(keyIndex % key.length) - 65;
+                    plaintext += String.fromCharCode(((charCode - 65 - keyCode + 26) % 26) + 65);
+                    keyIndex++;
+                } else {
+                    plaintext += ciphertext.charAt(i);
+                }
+            }
+            return plaintext;
+        }
+
+        setInterval(updateStatus, 2000);
+        input.addEventListener('keydown', handleInput);
+        startGame();
+    </script>
+</body>
+</html>
